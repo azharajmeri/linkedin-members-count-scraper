@@ -1,4 +1,5 @@
 import os
+import time
 
 import openpyxl
 from openpyxl.reader.excel import load_workbook
@@ -8,6 +9,8 @@ from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
 
 from config import OUTPUT_FILE_PATH, INPUT_FILE_PATH, LINKEDIN_EMAIL, LINKEDIN_PASSWORD
+from core.exceptions.web_driver import UnableToLoginException
+from core.handler.web_driver_tabs import TabHandler
 from core.managers.web_driver import WebDriverManager
 
 
@@ -33,21 +36,24 @@ class LinkedInController:
                     self.companies.append(cell)
 
     def initiate_scraping(self):
-        self.check_login()
+        try:
+            self.check_login()
+        except Exception:
+            raise UnableToLoginException
         if self.driver_manager.driver.current_url == "https://www.linkedin.com/feed/":
             self.extract_members_details()
         else:
-            print(f"Unable to login - {self.driver_manager.driver.current_url}")
+            raise UnableToLoginException(f"Unable to login - {self.driver_manager.driver.current_url}")
 
     def check_login(self):
         username = password = None
         try:
-            username = self.driver_manager.find_element_with_wait((By.XPATH, '//input[@id="username"]'))
+            username = self.driver_manager.find_element((By.XPATH, '//input[@id="username"]'))
         except NoSuchElementException:
             print("Username field not available on page.")
 
         try:
-            password = self.driver_manager.find_element_with_wait((By.XPATH, '//input[@id="password"]'))
+            password = self.driver_manager.find_element((By.XPATH, '//input[@id="password"]'))
         except NoSuchElementException:
             print("password field not available on page.")
 
@@ -61,7 +67,7 @@ class LinkedInController:
 
         password = None
         try:
-            password = self.driver_manager.find_element_with_wait((By.XPATH, '//input[@id="password"]'))
+            password = self.driver_manager.find_element((By.XPATH, '//input[@id="password"]'))
         except NoSuchElementException:
             print("password field not available on page.")
 
@@ -71,63 +77,50 @@ class LinkedInController:
             password.send_keys(Keys.ENTER)
 
     def extract_members_details(self):
-        all_data = []
-        for company in self.companies:
-            print(f"Extracting data for {company}")
-            self.driver_manager.navigate_to(company)
-            data = self._extract_members_details(company)
-            all_data.append(data)
-        self._save_to_excel(all_data)
+        # all_data = []
+        self.initialize_excel()
+        self._extract_members_details()
+        # all_data.append(data)
+        # self._save_to_excel(all_data)
 
-    def _save_to_excel(self, all_data):
+    def initialize_excel(self):
         # Check if the file exists
         file_exists = os.path.exists(self.excel_file)
 
         if file_exists:
             # Load the existing workbook
-            wb = load_workbook(self.excel_file)
-            ws = wb.active
+            self.wb = load_workbook(self.excel_file)
+            self.ws = self.wb.active
             # Clear existing data
-            ws.delete_rows(1, ws.max_row)
+            self.ws.delete_rows(1, self.ws.max_row)
         else:
             # Create a new workbook and select the active sheet
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Members Details"
+            self.wb = Workbook()
+            self.ws = self.wb.active
+            self.ws.title = "Members Details"
 
         # Define headers
-        headers = ["Company", "Total Members", "Top Country 1", "Top Country 2", "Top Country 3", "Top Country 4",
-                   "Top Country 5", "Top Country 6", "Top Country 7", "Top Country 8", "Top Country 9",
-                   "Top Country 10"]
-        ws.append(headers)
+        # headers = ["Company", "Total Members", "Top Country 1", "Top Country 2", "Top Country 3", "Top Country 4",
+        #            "Top Country 5", "Top Country 6", "Top Country 7", "Top Country 8", "Top Country 9",
+        #            "Top Country 10"]
+        headers = ["Company", "Total Members"]
+        self.ws.append(headers)
 
-        for data in all_data:
-            ws.append(data)
 
-        wb.save(self.excel_file)
+        # self.ws.append(data)
 
-        print(f"Data saved successfully to {self.excel_file}")
+        self.wb.save(self.excel_file)
 
-    def _extract_members_details(self, company):
-        data = [company]
+        # print(f"Data saved successfully to {self.excel_file}")
 
-        if total_members := self.driver_manager.find_element_with_wait(
-            (By.XPATH, '//h2[text()[contains(.,"associated members")]]'), wait=10):
-            data.append(total_members.get_attribute("textContent").replace("associated members", "").strip())
-        else:
-            data.append("Not available")
-
-        top_countries = self.driver_manager.find_elements_with_wait(
-            (By.XPATH, '//h3[text()[contains(.,"Where they live")]]/../../button/div'), wait=10)[:10]
-
-        for top_country in top_countries:
-            country_detail = (self._get_nested_element_data(top_country, './strong')
-                              + ", " + self._get_nested_element_data(top_country, './span'))
-            data.append(country_detail)
-
-        return data
-
-    def _get_nested_element_data(self, element, x_path):
-        if element := self.driver_manager._find_element_with_wait(element, (By.XPATH, x_path)):
-            return element.get_attribute("textContent")
-        return "NOT AVAILABLE"
+    def _extract_members_details(self):
+        tab_handler = TabHandler(
+            self.driver_manager,
+            (By.XPATH, '//h2[text()[contains(.,"associated members")]]'),
+            self.ws,
+            self.wb,
+            self.excel_file
+        )
+        start = time.time()
+        tab_handler.open_urls_in_tabs(self.companies)
+        print(f"TOTAL RUNTIME OF THE PROGRAM: {time.time() - start}")

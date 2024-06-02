@@ -1,9 +1,9 @@
-import contextlib
 import os
+import time
 
 import chromedriver_autoinstaller
 from selenium import webdriver
-from selenium.common import TimeoutException
+from selenium.common import TimeoutException, NoSuchElementException
 from selenium.webdriver.support.wait import WebDriverWait
 
 from core.exceptions.web_driver import UnableToRenderPage
@@ -29,6 +29,8 @@ class WebDriverManager:
         # Turn-off userAutomationExtension
         self.options.add_experimental_option("useAutomationExtension", False)
 
+        self.options.page_load_strategy = 'eager'
+
         session_folder_path = os.path.join(os.getcwd(), 'core', 'session')
 
         # Update the options.add_argument line to use the new path
@@ -41,6 +43,7 @@ class WebDriverManager:
 
     def start_driver(self):
         self.driver = webdriver.Chrome(options=self.options)
+        self.driver.implicitly_wait(0)
 
     def refresh_driver(self):
         if self.driver:
@@ -56,7 +59,9 @@ class WebDriverManager:
         if not self.driver:
             self.start_driver()
         try:
+            begin = time.time()
             self.driver.get(url)
+            print(f"Total runtime of the program is {time.time() - begin}")
         except TimeoutException:
             if raise_exception:
                 raise UnableToRenderPage
@@ -85,10 +90,16 @@ class WebDriverManager:
             self.switch_to_new_window()
 
     def find_element(self, locator):
-        return self.driver.find_element(*locator)
+        try:
+            return self.driver.find_element(*locator)
+        except NoSuchElementException:
+            return None
 
     def find_elements(self, locator):
-        return self.driver.find_elements(*locator)
+        try:
+            return self.driver.find_elements(*locator)
+        except NoSuchElementException:
+            return []
 
     def find_element_with_wait(self, locator, wait=5):
         try:
@@ -109,20 +120,6 @@ class WebDriverManager:
             )
         except TimeoutException as e:
             return []
-
-    def scroll_to_bottom(self, max_iterations=5):
-        SCROLL_COMMAND = "return document.body.scrollHeight"
-        next_height = initial_height = self.driver.execute_script(SCROLL_COMMAND)
-        for _ in range(max_iterations):
-            with contextlib.suppress(TimeoutException):
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                WebDriverWait(self.driver, 1).until(
-                    lambda driver: driver.execute_script(SCROLL_COMMAND) > next_height)
-            next_height = self.driver.execute_script(SCROLL_COMMAND)
-
-        # Check if the page content has actually changed
-        final_height = self.driver.execute_script(SCROLL_COMMAND)
-        return final_height != initial_height
 
     @staticmethod
     def _find_element_with_wait(element, locator, wait=5):

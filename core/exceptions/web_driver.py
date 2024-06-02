@@ -8,3 +8,10 @@ class UnableToLocateSearchBox(Exception):
 
 class UnableToInteractWithSearchBox(Exception):
     msg = "Unable to interact with the search box."
+
+
+class UnableToLoginException(Exception):
+    msg = "Unable to login."
+
+    def __init__(self, msg=None):
+        if msg: self.msg = msg
